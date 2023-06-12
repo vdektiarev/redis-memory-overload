@@ -202,7 +202,7 @@ If you have your Redis storage on premises, you may want to leverage some softwa
 #### Optimising Data Structures and Writing Logic
 
 If you are responsible for the operational excellence of your Redis cluster, you really should know how your system works, which processes and integrations does it have regarding your target datastore.
-Ideally, you should have few ,conceptual views on your system in form of diagrams, or a list telling who's reading from your datastore, who's writing into your datastore, and if we are talking about a key-value storage, it's also really nice to know the key formats different systems write in or read from.
+Ideally, you should have few conceptual views on your system in form of diagrams, or a list telling who's reading from your datastore, who's writing into your datastore, and if we are talking about a key-value storage, it's also really nice to know the key formats different systems write in or read from.
 
 Knowing the integrated apps and key patterns they used, and by running few scan queries for counting the records with key patterns, the team was able to find an old outstanding Kafka Streams application made for data analytics which was no longer needed for business and which was generating huge loads of data which was absolutely unnecessary.
 The team removed that application and cleaned up the store from the unused records.
@@ -210,6 +210,7 @@ The team removed that application and cleaned up the store from the unused recor
 Apart from that, you may want to review your data structures and ensure they are optimized for memory usage. 
 For example, consider using Redis' more memory-efficient data structures like Redis Hashes instead of individual keys for storing object fields. 
 Additionally, you may want to leverage Redis' data compression capabilities, such as using Redis Modules like RedisGears, to compress data before storing it in Redis, reducing the overall memory footprint.
+Plus you may want to leverage TTL attribute for your records if you don't have to keep your records forever in your cluster - you can schedule them for removal after some time.
 
 #### Vertical Upscaling
 
@@ -225,6 +226,7 @@ This most probably won't serve as a memory pressure resolution mechanism for an 
 However, this can be a safety measure for cases when you have a recovery point you can allow your system to roll back to without major business impact, and you are not under memory pressure.
 And you need to bear in mind that if you are restoring from the backup, AWS would create a new cluster with the data from the backup - it's not able to seed the data into your existing cluster, which can result in more configuration changes for your system.
 
+
 #### Data Partitioning and Horizontal Scaling
 
 If your workload exhibits a skewed data distribution pattern, you can implement data partitioning to evenly distribute the data across multiple Redis shards. 
@@ -234,7 +236,7 @@ The following [article](https://docs.aws.amazon.com/AmazonElastiCache/latest/red
 
 However, keep in mind the considerations and complexities involved in managing partitioned data. 
 For example, in AWS, you have to manage your key slots partitions, i.e. configure which shards would host which range of keys - either in even or in custom distribution.
-In addition, you need to make sure that your integrated applications support the cluster protocol for Redis
+In addition, you need to make sure that your integrated applications support the cluster protocol for Redis.
 
 Having your data partitioned across shards, you can then consider horizontal scaling by adding more shards to your Redis cluster. 
 Horizontal scaling allows you to distribute data across multiple nodes, thereby increasing the overall memory capacity and performance of your Redis deployment. 
@@ -256,7 +258,23 @@ This approach also helps distribute the memory load across multiple AZs, reducin
 
 The last, but not the least point to consider is to know your business processes and, most importantly, requirements very well to be able to assess your system, try to map the solution to the requirements and to see if they fit together.
 For example, for the reviewed eCommerce case, the primary requirements for the storage were data durability and read performance.
+
 While Redis is indeed a highly performant storage due to its work with memory, the data durability and resilience is questioned for such a technology.
+The nodes may still fail along with Append-Only-File even in the cloud, having all the data erased. While data partitioning and Multi-AZ deployments can help to minimize such a risk, business may still be impacted by either service disruption during the failover or by having some parts of data missing.
+In such a case, it's worth revising performant key-value based data storage solutions and trying to find an appropriate replacement which has data durability and resilience confirmed - like AWS DynamoDB or MongoDB appliance.
 
 ## Lessons Learned
 
+Summarizing the knowledge we've got, the following items can be pointed out as general advises for dealing with memory pressure for your Redis cluster:
+
+1. Always have the appropriate observability on your system - whether on premises or in the cloud: monitoring, access to metrics, alerting. This would give you time to act before the issue becomes more severe.
+2. Know the business processes your system is responsible for, the system context and integrations with your storage - to be able to review them if necessary and find anomalies in the behavior.
+3. Choose your technologies wisely according to the business requirements. Do the migration if you see risks, and you have the resources to do the job.
+4. Consider cloud solutions for storages if the business and policies allow you to do so - this shares the responsibility and brings a lot of automated instruments to reduce the storage management overhead, while saving costs in a lot of cases.
+5. Use Read Replicas to distribute the write and read load across the nodes, and have a failover scenario if the primary node fails.
+6. Approach data structures optimisations like data compression and choosing appropriate record types plus TTL attribute value.
+7. Consider data partitioning and automatic horizontal scaling to remove the bottlenecks, have a smoother scaling process and distribute the load - if you are ready to make changes in your integrations and to deal with sharding configurations.
+8. Do the vertical scaling if you see it's necessary, but keep in mind that it takes time.
+9. Do Multi-AZ deployments to increase the resiliency of your cluster and to be on a safer side for zone failure scenarios.
+
+By employing these strategies and leveraging the capabilities provided by the cloud, you can effectively manage memory pressure in your Redis deployment, ensuring optimal performance and reliability for your applications.
