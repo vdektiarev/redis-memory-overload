@@ -1,3 +1,26 @@
+<!-- TOC -->
+* [How to Deal with Memory Pressure in Redis](#how-to-deal-with-memory-pressure-in-redis)
+    * [Redis Overview and Benefits](#redis-overview-and-benefits)
+    * [Redis Hosting and Configuration Options](#redis-hosting-and-configuration-options)
+        * [On Premises](#on-premises)
+        * [Managed Service in the AWS Cloud](#managed-service-in-the-aws-cloud)
+    * [Memory Considerations](#memory-considerations)
+        * [Limited Storage Capacity](#limited-storage-capacity)
+        * [Non-Durability](#non-durability)
+    * [Real World Case Study](#real-world-case-study)
+        * [Project Setup](#project-setup)
+        * [Events Which Occurred](#events-which-occurred)
+        * [Addressing the Issue](#addressing-the-issue)
+            * [Monitoring and Alerting](#monitoring-and-alerting)
+            * [Optimising Data Structures and Writing Logic](#optimising-data-structures-and-writing-logic)
+            * [Vertical Upscaling](#vertical-upscaling)
+            * [Backups](#backups)
+            * [Data Partitioning and Horizontal Scaling](#data-partitioning-and-horizontal-scaling)
+            * [Availability](#availability)
+            * [Appropriate Technology Usage According to Your Requirements](#appropriate-technology-usage-according-to-your-requirements)
+    * [Lessons Learned](#lessons-learned)
+<!-- TOC -->
+
 # How to Deal with Memory Pressure in Redis
 
 Redis has emerged as a popular and powerful open-source in-memory data structure store.
@@ -53,7 +76,7 @@ c. Scalability and Flexibility: Scaling Redis in an on-premises environment requ
 
 d. Operational Overhead: On-premises hosting places the responsibility of infrastructure setup, maintenance, backups, and monitoring on your organization's IT team. This requires expertise and resources for ongoing management and support.
 
-### Managed Service in the Cloud (AWS)
+### Managed Service in the AWS Cloud
 
 The most straightforward and simple way to have a Redis storage in AWS cloud is using AWS ElastiCache service. It is a managed Redis service provided by Amazon Web Services (AWS).
 It offers a hassle-free way to deploy and operate Redis clusters in the cloud. 
