@@ -13,7 +13,7 @@
         * [Addressing the Issue](#addressing-the-issue)
             * [Monitoring and Alerting](#monitoring-and-alerting)
             * [Optimising Data Structures and Writing Logic](#optimising-data-structures-and-writing-logic)
-            * [Vertical Upscaling](#vertical-upscaling)
+            * [Vertical Upscaling](#vertical-scaling)
             * [Backups](#backups)
             * [Data Partitioning and Horizontal Scaling](#data-partitioning-and-horizontal-scaling)
             * [Availability](#availability)
@@ -129,42 +129,58 @@ For example, critical data can be stored both in Redis for fast access and in a 
 
 ### Project Setup
 
-Now having the basics of Redis and its memory concerns in mind, let's dive into a real scenario, when memory pressure greatly impacted operation excellence of the business, analyze the mistakes which were made in the initial design and the steps which helped in issues mitigation.
+Now that we have a basic understanding of Redis and its memory considerations, let's delve into a real-life scenario where memory pressure had a significant impact on the operational excellence of a business. 
+We will analyze the initial design mistakes and the steps taken to mitigate the issues.
 
-Let's start with the business context: we are dealing with a large eCommerce company which exposes the multi-tenant online shopping system online, selling consumer goods like shoes, home decor and other things.
-We will be taking a closer look at products management part of the business: the software which is responsible for getting the information about items, their prices, available configurations like sizes and other things from the supplier systems, applying necessary data enriching, aggregation and transformation business logic, and making this updated data available via an API, so that the shopping frontend could show the items to the end users.
+To provide some context, let's consider a large eCommerce company that operates an online shopping system. 
+They offer a variety of consumer goods such as shoes, home decor, and more. 
+In our analysis, we will focus on the product management aspect of the business. 
+This involves a software system responsible for retrieving information about items, including prices, available configurations (such as sizes), from supplier systems. 
+The software applies necessary data enriching, aggregation, and transformation business logic to provide updated data via an API. 
+This API allows the shopping frontend to display the items to end-users.
 
-Technologically, that part of the system is represented by an event-driven solution, having:
+Technologically, this part of the system utilizes an event-driven solution that consists of the following components:
 
-- Apache Kafka as the intermediate data store for keeping all the items' state updates which are coming, along with applied intermediate data manipulations;
-- Kafka Stream applications as data aggregators, processors, transformers;
-- Kafka Connect application which helps to sink data from Kafka topics into a storage;
-- AWS Elasticache Redis as prepared items data storage;
-- Java Spring Boot application as an API for shopping frontend to access the items' data. The diagram below shows the concept view of the system.
+- Apache Kafka: Acts as an intermediate data store, capturing all the state updates of the items including intermediate changes made by the system.
+- Kafka Streams: Provides functionality for data aggregation, processing, and transformation.
+- Kafka Connect: Facilitates the transfer of data from Kafka topics to a storage system.
+- AWS ElastiCache Redis: Serves as the storage for prepared item data.
+- Java Spring Boot application: Acts as an API, enabling the shopping frontend to access item data.
 
-```TODO: scheme```
+The diagram below illustrates the conceptual view of the system:
 
-Here we need to bear in mind that data retention period in Kafka is set to 1 month, which is a fairly large period which allows to replay the data to the storage if anything happens.
+![Project Setup](project-setup.png)
+
+By examining this scenario, we can identify the challenges faced and explore the subsequent actions taken to address memory pressure issues.
+
+We can already see that in the business product's context Redis is expected to act as a durable storage which Shopping Frontend relies upon, while it's not guaranteed for any Redis instance due to its memory management specifics.
 And we also have to consider that Redis here exists as a non-cluster instance with a read replica in a separate availability zone. That means that the only way to scale the storage up is to do the vertical scaling of the nodes, adding more memory capacity.
+
+It's also worth mentioning for that specific context that data retention period in Kafka was set to 1 month, which was a fairly large period which allows to replay the data to the storage if anything happens.
 
 ### Events Which Occurred
 
-The first trouble with such a setup occurred just during the Easter peak season: all the items in the shop just went offline (or not available), and sadly the business was the first to be notified about the issue.
+The initial setback occurred during the peak season, coinciding with Easter. 
+Unfortunately, all the items in the shop went offline, leading to a significant impact on the business. 
+Upon investigating the issue, the tech department discovered that the Redis storage was completely empty, causing the API to implement a fallback strategy where unavailable items were marked as not available.
 
-Once tech department got the hands dirty, they found out that Redis storage is completely empty, all the data there was vanished, and the API acted with the fallback strategy for the frontend: if the item is not in the storage, then it just tells that the item is not available.
-After the investigation, the tem has figured out that the memory usage has spiked up from 62% to 100% within few hours and Redis stopped accepting more write commands. 
-Moreover, once there has occurred a service disruption, the primary node which accepts writes has restarted, which resulted in complete data loss.
-Even having a read replica in another availability zone didn't help: once the primary node became non-responding to writes and went to restart, the replica has substituted the primary node and became primary itself.
-However, as the data sync was happening continuously for the replica, it was 100% occupied regarding memory capacity too, and very soon it became unavailable too. And consequently, it was restarted too, and substituted with newly cleaned up node.
-Eventually, both nodes went back online, but they were completely empty.
+Further investigation revealed that the memory usage had spiked from 62% to 100% within a few hours, resulting in Redis no longer accepting write commands. 
+To compound the problem, the primary node responsible for accepting writes had restarted during a service disruption, leading to the complete loss of data.
 
-To be fair, AWS does not tell that the ElastiCache node will always be restarted once the memory usage capacity is reached. 
-These events are connected but not necessarily happen together all the time. 
-Once the memory capacity is reached, Redis would just stop accepting more writes if that increases the memory usage.
-But in our case, unfortunately both nodes restarted as well, and AWS Support did not really tell the exact reason for that (and they are not really obliged to).
-But anyway the storage became completely empty which disrupted the normal work of the whole shop.
+Having a read replica in another availability zone did not alleviate the situation. 
+When the primary node became unresponsive and triggered a restart, the replica took over as the new primary node. 
+However, due to continuous data synchronization, the replica's memory capacity was fully occupied, rendering it unavailable as well. 
+Consequently, the replica was also restarted and replaced with a newly cleaned-up node. 
+Eventually, both nodes came back online, but they were completely empty, resulting in a disruption to the normal functioning of the shop.
 
-To fix that, they had to replay all the items data from Kafka topics to Redis, and that included:
+It is important to note that AWS does not guarantee that ElastiCache nodes will always restart once the memory usage capacity is reached. 
+While these events are often correlated, they do not necessarily occur simultaneously. 
+Normally, when the memory capacity is reached, Redis would simply stop accepting additional writes to prevent further memory usage. 
+However, in this unfortunate case, both nodes experienced restarts, and the exact reason for this was not provided by AWS Support, as they are not obligated to disclose such information.
+
+Regardless, the outcome was that the storage became entirely empty, causing significant disruption to the shop's operations.
+
+To fix the issue, the tech department had to replay all the items data from Kafka topics to Redis, and that included:
 - Stopping Kafka Connectors
 - Deleting Kafka Connectors
 - Resetting the offsets of corresponding Consumer Groups by executing the command:
@@ -174,14 +190,14 @@ To fix that, they had to replay all the items data from Kafka topics to Redis, a
 - Adding the connectors and their configuration back
 - Starting the connectors again
 
-This whole process resulted in few hours of downtime which obviously had a major business impact, and after returning the system to the business-as-usual state, the team had to make sure that thing won't happen again.
+This whole process resulted in few hours of downtime, which obviously had a major business impact, and after returning the system to the business-as-usual state, the team had to make sure that thing won't happen again.
 
 ### Addressing the Issue
 
 #### Monitoring and Alerting
 
 First of all, the team had to improve their observability of the system they are working with - to become more proactive, to foresee the issues before they are occurring or starting impacting the business.
-Having Redis as a managed service in AWS, it is a relatively simple task to achieve, as there is a metric for Elasticache called "DatabaseMemoryUsagePercentage" - indicating how much memory is used by the storage.
+Having Redis as a managed service in AWS, it is a relatively simple task to achieve, as there is a metric for ElastiCache called "DatabaseMemoryUsagePercentage" - indicating how much memory is used by the storage.
 The only remaining thing is to make sure that monitoring of that metric is automated and if it exceeds the approved threshold, the team would be notified:
 
 1. Create an Amazon CloudWatch Alarm: CloudWatch is a monitoring service in AWS that can collect and track metrics. You'll start by creating an alarm that will trigger when the DatabaseMemoryUsagePercentage metric exceeds a specified threshold. This can be done in the Alarms screen of CloudWatch service. There you'd be able to select the desired metric, the threshold indicating the percentage of memory used when you want to be notified, and the action to be taken (for example, an email to the team or a Lambda function trigger which would send an alert to the corporate messenger).
@@ -189,7 +205,8 @@ The only remaining thing is to make sure that monitoring of that metric is autom
 3. Configure additional actions on alarm if needed.
 
 Additionally, you may want to be notified about major events happening to your Redis storage, like failover, node restart, backup events, node replacements and others.
-To do that, you can:
+To achieve that, you can:
+
 1. Set up an SNS topic where these events will be sinked by ElastiCache service
 2. Enable the SNS notifications in ElastiCache service
 3. Specify your new topic as the destination
@@ -201,31 +218,60 @@ If you have your Redis storage on premises, you may want to leverage some softwa
 
 #### Optimising Data Structures and Writing Logic
 
-If you are responsible for the operational excellence of your Redis cluster, you really should know how your system works, which processes and integrations does it have regarding your target datastore.
-Ideally, you should have few conceptual views on your system in form of diagrams, or a list telling who's reading from your datastore, who's writing into your datastore, and if we are talking about a key-value storage, it's also really nice to know the key formats different systems write in or read from.
+If you are responsible for maintaining the operational excellence of your Redis cluster, it is essential to have a deep understanding of how your system works and the various processes and integrations it utilizes with regard to your target datastore. 
+Ideally, you should have conceptual views of your system in the form of diagrams or a comprehensive list that outlines which applications read from and write to your datastore. 
+In the case of a key-value storage system, it is also valuable to know the key formats used by different systems for reading and writing.
 
-Knowing the integrated apps and key patterns they used, and by running few scan queries for counting the records with key patterns, the team was able to find an old outstanding Kafka Streams application made for data analytics which was no longer needed for business and which was generating huge loads of data which was absolutely unnecessary.
-The team removed that application and cleaned up the store from the unused records.
+By gaining insights into the integrated applications and the key patterns they utilize, you can effectively analyze your Redis cluster. 
+Running scan queries to count records based on key patterns, the team was able to identify an outdated Kafka Streams application that was solely intended for data analytics. 
+This application was no longer relevant to our business and was unnecessarily generating massive amounts of data. 
+Once identified, the team promptly removed this application and cleaned up the Redis store, eliminating the burden of unused records.
 
-Apart from that, you may want to review your data structures and ensure they are optimized for memory usage. 
-For example, consider using Redis' more memory-efficient data structures like Redis Hashes instead of individual keys for storing object fields. 
-Additionally, you may want to leverage Redis' data compression capabilities, such as using Redis Modules like RedisGears, to compress data before storing it in Redis, reducing the overall memory footprint.
-Plus you may want to leverage TTL attribute for your records if you don't have to keep your records forever in your cluster - you can schedule them for removal after some time.
+In addition to reviewing your system's integrations and identifying obsolete applications, optimizing your data structures can significantly enhance memory usage efficiency. 
+For instance, consider utilizing Redis Hashes instead of individual keys for storing object fields, as they are more memory-efficient. 
+Moreover, taking advantage of Redis' data compression capabilities, such as Redis Modules like RedisGears, enables you to compress data before storing it in Redis. 
+This helps to reduce the overall memory footprint of your cluster.
 
-#### Vertical Upscaling
+Furthermore, leveraging the TTL (Time to Live) attribute for your records can be beneficial if you don't require data to be stored indefinitely in your Redis cluster. 
+By scheduling the automatic removal of records after a certain period, you can effectively manage memory consumption and keep your cluster lean and optimized.
 
-In the situation when your business is growing, as well as the amounts of data stored, you may want to consider scaling up the memory capacity of your Redis cluster using ElastiCache's vertical scaling capabilities, or by providing a machine with bigger capacity and performing the migration if your Redis is on premises. 
-In AWS, you can modify the instance type or increase the number of shards to add more memory to your cluster. 
-This approach allows your Redis deployment to accommodate increased data volumes and mitigate memory pressure.
-However, you need to bear in mind that vertical scaling takes time and in case of a sudden peak memory pressure this might not really manage to help you in time.
+In conclusion, ensuring the operational excellence of your Redis cluster requires a comprehensive understanding of its inner workings, including the processes, integrations, and key patterns involved. 
+By conducting thorough analyses, such as identifying unused applications and optimizing data structures, you can improve memory usage efficiency and maintain a streamlined Redis cluster. 
+Implementing strategies like data compression and utilizing TTL attributes further contribute to optimizing memory usage and overall performance.
+
+#### Vertical Scaling
+
+When your business experiences growth and your data storage requirements increase, it becomes necessary to consider scaling up the memory capacity of your Redis cluster. 
+One option is to leverage ElastiCache's vertical scaling capabilities, which involve modifying the instance type in your AWS environment. 
+Another possibility is to provide a machine with a larger memory capacity and perform the migration if your Redis is hosted on premises.
+
+By scaling up the memory capacity, you enable your Redis deployment to handle larger volumes of data and alleviate memory pressure. 
+This is especially crucial in situations where the amount of data stored and the demands on your Redis cluster are rapidly expanding. 
+Scaling vertically allows you to meet these growing needs effectively.
+
+However, it is important to keep in mind that vertical scaling does require time and planning. 
+If your Redis cluster experiences a sudden peak in memory pressure, the process of scaling up may not be able to provide immediate relief. 
+It's crucial to anticipate and prepare for such scenarios by monitoring the memory usage closely and considering alternative strategies, such as horizontal scaling or implementing caching mechanisms, to ensure smooth operation even during peak periods.
+
+In conclusion, the decision to scale up the memory capacity of your Redis cluster is a significant step in accommodating the growing demands of your business. 
+By utilizing ElastiCache's vertical scaling capabilities or adopting a larger capacity machine, you can enhance your Redis deployment's ability to handle expanding data volumes. 
+However, it's essential to plan ahead, monitor memory usage, and be prepared for sudden spikes in memory pressure to maintain optimal performance.
 
 #### Backups
 
-If we are talking about ElastiCache, backups for Redis are done as snapshots which are stored in AWS S3. 
-This most probably won't serve as a memory pressure resolution mechanism for an active storage. 
-However, this can be a safety measure for cases when you have a recovery point you can allow your system to roll back to without major business impact, and you are not under memory pressure.
-And you need to bear in mind that if you are restoring from the backup, AWS would create a new cluster with the data from the backup - it's not able to seed the data into your existing cluster, which can result in more configuration changes for your system.
+When it comes to ElastiCache, Redis backups are performed as snapshots and stored in AWS S3. 
+However, it's important to note that these backups typically do not serve as a direct solution for alleviating memory pressure in an active storage environment. 
+Instead, they primarily act as a safety measure, providing a recovery point that you can roll back to in situations where major business impacts are acceptable and memory pressure is not a concern.
 
+It's crucial to keep in mind that if you need to restore your Redis cluster from a backup, AWS will create a new cluster using the data from the backup. 
+It is not capable of directly seeding the backup data into your existing cluster. 
+This can result in additional configuration changes for your system, as the restored cluster may require adjustments to ensure compatibility and consistency with your application.
+
+While backups are a valuable component of your overall Redis storage strategy, they should not be solely relied upon for addressing memory pressure issues. 
+Instead, it is advisable to explore other approaches, such as vertical or horizontal scaling, to effectively handle increased data volumes and mitigate memory constraints in real-time.
+
+In summary, while ElastiCache's Redis backups stored in AWS S3 provide a recovery mechanism and safety net, they are not specifically designed to resolve memory pressure concerns in an active storage environment. 
+It's important to understand their limitations and consider alternative strategies for addressing memory pressure, such as scaling options, to ensure optimal performance and reliability of your Redis cluster.
 
 #### Data Partitioning and Horizontal Scaling
 
@@ -246,35 +292,51 @@ However, you have to know that the process could bring some performance degradat
 
 #### Availability
 
-First of all, in AWS, consider having a Read Replica or even few replicas for your cluster, to distribute the overall load across the nodes. 
-The primary node can accept write commands, which few Read Replicas can handle the read load. Plus, if you also enable data partitioning, multiple nodes (shards) would handle write load, which also removes the bottlenecks in your system.
-In addition to that you'll have a failover scenario we reviewed above: if anything happens with the primary node, it gets replaced with one of ready replicas in minimal downtime, while AWS handles the provision of another Read Replica instead of the missing one.
+While the issue of availability is not directly related to memory pressure, ensuring the availability of your Redis cluster is still a crucial concern, particularly when dealing with mission-critical storage systems. 
+There are several strategies you can employ to enhance the availability of your Redis cluster.
 
-Moreover, to enhance resiliency, consider expanding your Redis cluster across multiple Availability Zones (AZs) within the same region. 
-ElastiCache's Multi-AZ deployments automatically replicate data synchronously to standby replicas in different AZs, increasing availability and data durability. 
-This approach also helps distribute the memory load across multiple AZs, reducing pressure on individual nodes.
+First and foremost, in an AWS environment, it is advisable to consider implementing Read Replicas for your Redis cluster. 
+By distributing the overall load across multiple nodes, including the primary node that accepts write commands and multiple Read Replicas that handle read load, you can effectively balance the workload. 
+Additionally, enabling data partitioning allows for write load to be distributed across multiple nodes or shards, removing potential bottlenecks within the system. 
+This approach not only improves performance but also increases the fault tolerance of your Redis cluster.
+
+Furthermore, to enhance resiliency, it is recommended to expand your Redis cluster across multiple Availability Zones (AZs) within the same AWS region. 
+ElastiCache's Multi-AZ deployments offer the ability to automatically replicate data synchronously to standby replicas in different AZs. 
+This replication process increases the availability and durability of your data. By distributing the memory load across multiple AZs, the pressure on individual nodes is reduced, leading to improved performance and reliability.
+
+It's important to note that implementing these availability-enhancing measures also prepares you for failover scenarios. 
+In the event of an issue with the primary node, one of the Read Replicas can seamlessly replace it with minimal downtime. 
+AWS handles the provisioning of another Read Replica to compensate for the replacement, ensuring continuous operations and mitigating the impact on your Redis cluster's availability.
 
 #### Appropriate Technology Usage According to Your Requirements
 
-The last, but not the least point to consider is to know your business processes and, most importantly, requirements very well to be able to assess your system, try to map the solution to the requirements and to see if they fit together.
-For example, for the reviewed eCommerce case, the primary requirements for the storage were data durability and read performance.
+In addition to the points discussed earlier, it is crucial to thoroughly understand your business processes and requirements in order to assess your system effectively. 
+By mapping your solution to the specific requirements and examining their compatibility, you can ensure a proper fit between your storage solution and the needs of your business.
 
-While Redis is indeed a highly performant storage due to its work with memory, the data durability and resilience is questioned for such a technology.
-The nodes may still fail along with Append-Only-File even in the cloud, having all the data erased. While data partitioning and Multi-AZ deployments can help to minimize such a risk, business may still be impacted by either service disruption during the failover or by having some parts of data missing.
-In such a case, it's worth revising performant key-value based data storage solutions and trying to find an appropriate replacement which has data durability and resilience confirmed - like AWS DynamoDB or MongoDB appliance.
+For instance, in the case of the eCommerce scenario, the primary requirements for the storage solution included data durability and read performance. 
+While Redis is renowned for its high-performance capabilities, concerns arise regarding the data durability and resilience of such a technology.
+
+Redis nodes, even in a cloud environment, can still fail, potentially leading to the loss of data stored in the Append-Only File. 
+Although data partitioning and Multi-AZ deployments can mitigate this risk to some extent, there is still the possibility of business impact due to service disruptions during failover or the loss of certain data segments.
+
+In situations where data durability and resilience are critical, it is worth revisiting alternative solutions that offer both performance and confirmed data durability. 
+AWS DynamoDB or MongoDB appliance are examples of key-value-based data storage solutions that prioritize data durability and resilience, providing more reliable options for business-critical applications.
+
+By reevaluating your requirements and considering alternative storage solutions, you can ensure a better match between your business needs and the capabilities of the chosen technology. 
+This assessment helps to mitigate the risk of data loss or service disruption and ultimately supports the long-term success and reliability of your storage infrastructure.
 
 ## Lessons Learned
 
-Summarizing the knowledge we've got, the following items can be pointed out as general advises for dealing with memory pressure for your Redis cluster:
+Summarizing the knowledge we have gathered, the following points can be highlighted as general recommendations for effectively managing memory pressure in your Redis cluster:
 
-1. Always have the appropriate observability on your system - whether on premises or in the cloud: monitoring, access to metrics, alerting. This would give you time to act before the issue becomes more severe.
-2. Know the business processes your system is responsible for, the system context and integrations with your storage - to be able to review them if necessary and find anomalies in the behavior.
-3. Choose your technologies wisely according to the business requirements. Do the migration if you see risks, and you have the resources to do the job.
-4. Consider cloud solutions for storages if the business and policies allow you to do so - this shares the responsibility and brings a lot of automated instruments to reduce the storage management overhead, while saving costs in a lot of cases.
-5. Use Read Replicas to distribute the write and read load across the nodes, and have a failover scenario if the primary node fails.
-6. Approach data structures optimisations like data compression and choosing appropriate record types plus TTL attribute value.
-7. Consider data partitioning and automatic horizontal scaling to remove the bottlenecks, have a smoother scaling process and distribute the load - if you are ready to make changes in your integrations and to deal with sharding configurations.
-8. Do the vertical scaling if you see it's necessary, but keep in mind that it takes time.
-9. Do Multi-AZ deployments to increase the resiliency of your cluster and to be on a safer side for zone failure scenarios.
+1. Ensure comprehensive observability for your system, whether it is deployed on premises or in the cloud. This includes monitoring, access to metrics, and alerting mechanisms. These tools will provide timely insights and allow you to take proactive measures before the issue escalates.
+2. Familiarize yourself with the business processes your system supports, understand the system context, and be aware of the integrations with your storage solution. This knowledge enables you to review and identify any anomalies in behavior that may contribute to memory pressure.
+3. Make informed decisions when selecting technologies based on the specific requirements of your business. If risks are identified and resources are available, consider migrating to alternative solutions that better align with your needs.
+4. Explore cloud-based storage solutions if it aligns with your business and policies. Leveraging cloud services shares the responsibility of storage management and provides automated instruments that can reduce overhead. This approach often leads to cost savings as well.
+5. Utilize Read Replicas to distribute both write and read loads across nodes. Additionally, establish a failover scenario to ensure continuity in the event of a primary node failure.
+6. Optimize data structures by employing techniques such as data compression and selecting appropriate record types. Additionally, consider utilizing the TTL attribute to manage record expiration when long-term storage is not necessary.
+7. Evaluate data partitioning and automatic horizontal scaling options to remove bottlenecks, facilitate seamless scaling, and distribute the workload. Keep in mind that implementing these approaches may require adjustments to your integrations and configurations related to sharding.
+8. Consider vertical scaling if deemed necessary, but be aware that this process takes time and may not provide immediate relief in cases of sudden memory pressure spikes.
+9. Implement Multi-AZ deployments to enhance the resiliency of your Redis cluster. By spanning your deployment across multiple Availability Zones, you can mitigate the impact of zone failures and improve the overall reliability of your system.
 
-By employing these strategies and leveraging the capabilities provided by the cloud, you can effectively manage memory pressure in your Redis deployment, ensuring optimal performance and reliability for your applications.
+By implementing these strategies and leveraging the capabilities offered by cloud platforms, you can effectively manage memory pressure in your Redis deployment. This approach ensures optimal performance and reliability for your applications while providing scalability and fault tolerance to accommodate growing demands.
