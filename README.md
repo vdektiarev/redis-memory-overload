@@ -280,6 +280,10 @@ By partitioning your data, you can distribute the memory load and prevent excess
 In AWS, you can do so by creating a Redis storage with Cluster Mode Enabled, or by migrating your existing storage from Cluster Mode Disabled to Cluster Mode Enabled, including making all the integration preparations like changing the SDK.
 The following [article](https://docs.aws.amazon.com/AmazonElastiCache/latest/red-ug/modify-cluster-mode.html) has more information on the migration process.
 
+AWS also provides an illustration showing the visual differences between clustered and non-clustered mode, which is shown below:
+
+![Sharding Options](sharding-options.png)
+
 However, keep in mind the considerations and complexities involved in managing partitioned data. 
 For example, in AWS, you have to manage your key slots partitions, i.e. configure which shards would host which range of keys - either in even or in custom distribution.
 In addition, you need to make sure that your integrated applications support the cluster protocol for Redis.
