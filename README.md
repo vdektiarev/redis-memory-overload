@@ -2,8 +2,6 @@
 * [How to Deal with Memory Pressure in Redis](#how-to-deal-with-memory-pressure-in-redis)
     * [Redis Overview and Benefits](#redis-overview-and-benefits)
     * [Redis Hosting and Configuration Options](#redis-hosting-and-configuration-options)
-        * [On Premises](#on-premises)
-        * [Managed Service in the AWS Cloud](#managed-service-in-the-aws-cloud)
     * [Memory Considerations](#memory-considerations)
         * [Limited Storage Capacity](#limited-storage-capacity)
         * [Non-Durability](#non-durability)
@@ -60,37 +58,19 @@ By leveraging its in-memory nature, diverse data structures, and built-in featur
 ## Redis Hosting and Configuration Options
 
 Before jumping into memory usage specifics, let's get some context on the options where could we potentially host our Redis storage.
-We will review two primary concepts: on premises hosting and using a managed service in the cloud.
-
-### On Premises
 
 On-premises Redis hosting involves setting up and managing Redis instances within your own infrastructure. 
-This option offers complete control over the Redis environment but requires significant upfront investment in hardware, networking, and ongoing maintenance. 
-Some key considerations for on-premises Redis hosting include:
+This option offers complete control over the Redis environment but requires significant upfront investment in hardware, networking, and ongoing maintenance.
+You have the flexibility to choose hardware specifications tailored to your specific requirements, you have direct control over security measures and can enforce compliance standards specific to your organization's needs, however some processes like scaling Redis in an on-premises environment requires careful planning and provisioning of additional hardware resources.
+Additionally, On-premises hosting places the responsibility of infrastructure setup, maintenance, backups, and monitoring on your organization's IT team. This requires expertise and resources for ongoing management and support.
 
-a. Hardware and Networking: You have the flexibility to choose hardware specifications tailored to your specific requirements, including CPU, RAM, and storage. Network configuration can be optimized for low latency and high throughput, ensuring optimal Redis performance.
-
-b. Security and Compliance: With on-premises hosting, you have direct control over security measures and can enforce compliance standards specific to your organization's needs. This includes implementing firewalls, encryption, access controls, and auditing mechanisms.
-
-c. Scalability and Flexibility: Scaling Redis in an on-premises environment requires careful planning and provisioning of additional hardware resources. Upgrades and capacity adjustments may involve additional costs and effort, making it less flexible compared to cloud-based options.
-
-d. Operational Overhead: On-premises hosting places the responsibility of infrastructure setup, maintenance, backups, and monitoring on your organization's IT team. This requires expertise and resources for ongoing management and support.
-
-### Managed Service in the AWS Cloud
-
-The most straightforward and simple way to have a Redis storage in AWS cloud is using AWS ElastiCache service. It is a managed Redis service provided by Amazon Web Services (AWS).
+On the other hand, speaking about the cloud options, the most straightforward and simple way to have a Redis storage in AWS cloud is using AWS ElastiCache service. It is a managed Redis service provided by Amazon Web Services (AWS).
 It offers a hassle-free way to deploy and operate Redis clusters in the cloud. 
-Key advantages of AWS ElastiCache include:
-
-a. Managed Service: ElastiCache handles infrastructure provisioning, configuration, scaling, and maintenance tasks, allowing you to focus on application development instead of operational aspects. AWS takes care of patching, backups, and software updates, ensuring a reliable and secure Redis environment.
-
-b. Scalability and Elasticity: ElastiCache makes it easy to scale Redis clusters vertically (by adding more memory to individual nodes) or horizontally (by adding or removing nodes) based on changing workload demands. This enables seamless scalability and accommodates fluctuating traffic patterns.
-
-c. High Availability and Fault Tolerance: ElastiCache provides automatic failover and replication capabilities, ensuring high availability of Redis clusters. It employs features like Multi-AZ replication, which synchronously replicates data across availability zones to withstand failures.
-
-d. Integration with AWS Ecosystem: ElastiCache seamlessly integrates with other AWS services, enabling you to leverage additional capabilities. For example, you can integrate ElastiCache with AWS Identity and Access Management (IAM) for fine-grained access control, or use AWS CloudWatch for monitoring and performance analysis.
-
-e. Cost-Effectiveness: AWS ElastiCache follows a pay-as-you-go pricing model, where you pay for the resources consumed. This eliminates the need for upfront infrastructure investment and allows you to optimize costs based on actual usage.
+By leveraging Elasticache you instantly get infrastructure provisioning, configuration, scaling, and maintenance tasks handled by an external service, allowing you to focus on application development instead of operational aspects. 
+AWS takes care of patching, backups, and software updates, ensuring a reliable and secure Redis environment.
+ElastiCache also makes it easy to scale Redis clusters vertically (by adding more memory to individual nodes) or horizontally (by adding or removing nodes) based on changing workload demands.
+Addiitonally, ElastiCache provides automatic failover and replication capabilities, ensuring high availability of Redis clusters, employing features like Multi-AZ replication, which synchronously replicates data across availability zones to withstand failures.
+And this all comes with a pay-as-you-go pricing model, where you pay for the resources consumed.
 
 It's important to note that while AWS ElastiCache offers convenience and scalability, it also introduces dependencies on the AWS platform and incurs ongoing operational costs. 
 Organizations must evaluate their specific requirements, cost considerations, and expertise before choosing between on-premises hosting or a managed service like AWS ElastiCache for Redis.
@@ -228,8 +208,29 @@ This application was no longer relevant to our business and was unnecessarily ge
 Once identified, the team promptly removed this application and cleaned up the Redis store, eliminating the burden of unused records.
 
 In addition to reviewing your system's integrations and identifying obsolete applications, optimizing your data structures can significantly enhance memory usage efficiency. 
-For instance, consider utilizing Redis Hashes instead of individual keys for storing object fields, as they are more memory-efficient. 
-Moreover, taking advantage of Redis' data compression capabilities, such as Redis Modules like RedisGears, enables you to compress data before storing it in Redis. 
+For instance, consider utilizing Redis Hashes instead of individual keys for storing object fields, as they are more memory-efficient.
+
+The example below shows the commands needed and the results of a Hash creation:
+
+```
+redis 127.0.0.1:6379> HMSET tutorial name "redis tutorial"
+description "redis basic commands for hashing" products 230 stocks 25000
+OK
+redis 127.0.0.1:6379> HGETALL tutorial
+1) "name"
+2) "redis tutorial"
+3) "description"
+4) "redis basic commands for hashing"
+5) "products"
+6) "230"
+7) "stocks"
+8) "25000"
+```
+
+Eventually, what you get as a result - is a collection of values bound to one key.
+You can use this data structure to store maps of field names and field values related to a single entity.
+
+Moreover, taking advantage of Redis' data compression capabilities, such as Redis Modules like RedisGears, enables you to compress data before storing it in Redis.
 This helps to reduce the overall memory footprint of your cluster.
 
 Furthermore, leveraging the TTL (Time to Live) attribute for your records can be beneficial if you don't require data to be stored indefinitely in your Redis cluster. 
@@ -259,7 +260,10 @@ However, it's essential to plan ahead, monitor memory usage, and be prepared for
 
 #### Backups
 
-When it comes to ElastiCache, Redis backups are performed as snapshots and stored in AWS S3. 
+When it comes to ElastiCache, Redis backups are performed as snapshots and stored in AWS S3. The process is illustrated below:
+
+![Backups](availability-backups.png)
+
 However, it's important to note that these backups typically do not serve as a direct solution for alleviating memory pressure in an active storage environment. 
 Instead, they primarily act as a safety measure, providing a recovery point that you can roll back to in situations where major business impacts are acceptable and memory pressure is not a concern.
 
@@ -311,6 +315,16 @@ This replication process increases the availability and durability of your data.
 It's important to note that implementing these availability-enhancing measures also prepares you for failover scenarios. 
 In the event of an issue with the primary node, one of the Read Replicas can seamlessly replace it with minimal downtime. 
 AWS handles the provisioning of another Read Replica to compensate for the replacement, ensuring continuous operations and mitigating the impact on your Redis cluster's availability.
+
+The difference in reliability and fault-tolerance is clearly seen even visually. Here you can see the most basic deployment of a Redis node with a Read Replica in the same AZ:
+
+![Single AZ Deployment](availability-single-replica.png)
+
+And below you can find a visualization of a more advanced deployment: a Primary Node with 2 Read Replicas in 3 Availability Zones:
+
+![2 Replicas, 3 AZs Deployment](availability-3-azs.png)
+
+Note that having a Read Replica in a separate AZ greatly improves the resilience of your cluster, it also slightly negatively impacts the performance of your write operations, as there is a synchronous replication happening between the nodes of your cluster.
 
 #### Appropriate Technology Usage According to Your Requirements
 
